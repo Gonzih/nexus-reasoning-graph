@@ -29,11 +29,15 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // ─── Sessions ────────────────────────────────────────────────────────────────
 
-app.get('/sessions', (_req: Request, res: Response) => {
-  res.json(db.listSessions());
+app.get('/sessions', async (_req: Request, res: Response) => {
+  try {
+    res.json(await db.listSessions());
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
-// ─── SSE live updates ─────────────────────────────────────────────────────────
+// ─── SSE per-session ─────────────────────────────────────────────────────────
 
 app.get('/events/:session_id', (req: Request<{ session_id: string }>, res: Response) => {
   const { session_id } = req.params;
@@ -60,10 +64,11 @@ interface NodeRequestBody {
   tool_name?: string;
   content: unknown;
   timestamp?: string;
+  cwd?: string;
 }
 
-app.post('/node', (req: Request<Record<string, never>, unknown, NodeRequestBody>, res: Response) => {
-  const { session_id, type, tool_name, content, timestamp } = req.body;
+app.post('/node', async (req: Request<Record<string, never>, unknown, NodeRequestBody>, res: Response) => {
+  const { session_id, type, tool_name, content, timestamp, cwd } = req.body;
 
   if (!session_id || !type || content === undefined) {
     return res.status(400).json({ error: 'session_id, type, and content are required' });
@@ -72,28 +77,44 @@ app.post('/node', (req: Request<Record<string, never>, unknown, NodeRequestBody>
   const nodeId = uuidv4();
   const ts = timestamp || new Date().toISOString();
 
-  db.ensureSession(session_id);
-  const sequence = db.insertNode({ id: nodeId, session_id, type, tool_name, content: String(content), timestamp: ts });
-
-  // Return immediately — do heavy work in background
-  res.json({ id: nodeId, sequence });
-
-  // Background: chunk + embed + maybe compute influences
-  setImmediate(() => {
-    processNodeAsync(nodeId, session_id, type, String(content)).catch((err: Error) => {
-      console.error('[processNode] error:', err.message);
+  try {
+    const sequence = await db.insertNode({
+      id: nodeId,
+      session_id,
+      type,
+      tool_name,
+      content: String(content),
+      timestamp: ts,
+      cwd,
     });
-  });
+
+    // Return immediately — do heavy work in background
+    res.json({ id: nodeId, sequence });
+
+    // Background: chunk + embed + maybe compute influences
+    setImmediate(() => {
+      processNodeAsync(nodeId, session_id, type, String(content)).catch((err: Error) => {
+        console.error('[processNode] error:', err.message);
+      });
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
-async function processNodeAsync(nodeId: string, sessionId: string, type: string, content: string): Promise<void> {
+async function processNodeAsync(
+  nodeId: string,
+  sessionId: string,
+  type: string,
+  content: string,
+): Promise<void> {
   // 1. Chunk
   const chunks = chunkText(content);
   const chunkIds: string[] = [];
 
   for (const { index, content: chunkContent } of chunks) {
     const chunkId = uuidv4();
-    db.insertChunk({ id: chunkId, node_id: nodeId, chunk_index: index, content: chunkContent });
+    await db.insertChunk({ id: chunkId, node_id: nodeId, chunk_index: index, content: chunkContent });
     chunkIds.push(chunkId);
   }
 
@@ -101,7 +122,7 @@ async function processNodeAsync(nodeId: string, sessionId: string, type: string,
   for (let i = 0; i < chunkIds.length; i++) {
     const embedding = await embed(chunks[i].content);
     if (embedding) {
-      db.updateChunkEmbedding(chunkIds[i], embedding);
+      await db.updateChunkEmbedding(chunkIds[i], embedding);
     }
   }
 
@@ -115,26 +136,22 @@ async function processNodeAsync(nodeId: string, sessionId: string, type: string,
 }
 
 async function computeAndStoreInfluences(synthesisNodeId: string, sessionId: string): Promise<void> {
-  // Get all chunks in session with embeddings
-  const allChunks = db.getChunksWithEmbeddingsBySession(sessionId).map(c => ({
+  const allChunks = (await db.getChunksWithEmbeddingsBySession(sessionId)).map((c) => ({
     ...c,
     embedding: parseEmbedding(c.embedding),
   }));
 
-  // Synthesis node's own chunks
-  const synChunks = allChunks.filter(c => c.node_id === synthesisNodeId);
-  // Prior chunks (from earlier nodes, not the synthesis node itself)
-  const priorChunks = allChunks.filter(c => c.node_id !== synthesisNodeId);
+  const synChunks = allChunks.filter((c) => c.node_id === synthesisNodeId);
+  const priorChunks = allChunks.filter((c) => c.node_id !== synthesisNodeId);
 
   if (!synChunks.length || !priorChunks.length) return;
 
   const influences = computeTopInfluences(synChunks, priorChunks, 5);
 
-  // Delete existing edges for this target node to allow recomputation
-  db.deleteEdgesByTarget(synthesisNodeId);
+  await db.deleteEdgesByTarget(synthesisNodeId);
 
   for (const inf of influences) {
-    db.insertEdge({
+    await db.insertEdge({
       id: uuidv4(),
       session_id: sessionId,
       source_chunk_id: inf.source_chunk_id,
@@ -148,55 +165,183 @@ async function computeAndStoreInfluences(synthesisNodeId: string, sessionId: str
 
 app.post('/compute_influences/:session_id', async (req: Request<{ session_id: string }>, res: Response) => {
   const { session_id } = req.params;
-  const nodes = db.getNodesBySession(session_id);
-  const synthesisNodes = nodes.filter(n => n.type === 'synthesis');
+  try {
+    const nodes = await db.getNodesBySession(session_id);
+    const synthesisNodes = nodes.filter((n) => n.type === 'synthesis');
 
-  let computed = 0;
-  for (const node of synthesisNodes) {
-    await computeAndStoreInfluences(node.id, session_id);
-    computed++;
+    let computed = 0;
+    for (const node of synthesisNodes) {
+      await computeAndStoreInfluences(node.id, session_id);
+      computed++;
+    }
+
+    res.json({ computed, session_id });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
   }
-
-  res.json({ computed, session_id });
 });
 
 // ─── Graph data ───────────────────────────────────────────────────────────────
 
-app.get('/graph/:session_id', (req: Request<{ session_id: string }>, res: Response) => {
+app.get('/graph/:session_id', async (req: Request<{ session_id: string }>, res: Response) => {
   const { session_id } = req.params;
-  const rawNodes = db.getNodesBySession(session_id);
+  try {
+    const rawNodes = await db.getNodesBySession(session_id);
 
-  if (!rawNodes.length) {
-    return res.json({ session_id, nodes: [], edges: [], chunks: [], compression_cuts: [] });
+    if (!rawNodes.length) {
+      return res.json({ session_id, nodes: [], edges: [], chunks: [], compression_cuts: [] });
+    }
+
+    const nodeChunkCounts = await Promise.all(
+      rawNodes.map((n) => db.getChunksByNode(n.id).then((cs) => ({ id: n.id, count: cs.length }))),
+    );
+    const chunkCountMap = new Map(nodeChunkCounts.map((x) => [x.id, x.count]));
+
+    const nodes = rawNodes.map((n) => ({
+      id: n.id,
+      session_id: n.session_id,
+      sequence: n.sequence,
+      type: n.type,
+      tool_name: n.tool_name,
+      content_preview: n.content.slice(0, 200),
+      chunk_count: chunkCountMap.get(n.id) ?? 0,
+      timestamp: n.timestamp,
+    }));
+
+    const edges = (await db.getEdgesBySession(session_id)).map((e) => ({
+      source_chunk_id: e.source_chunk_id,
+      target_node_id: e.target_node_id,
+      weight: e.weight,
+      type: e.type,
+    }));
+
+    const chunks = await db.getChunksBySession(session_id);
+
+    const compression_cuts = rawNodes
+      .filter((n) => n.type === 'compression_cut')
+      .map((n) => n.sequence);
+
+    res.json({ session_id, nodes, edges, chunks, compression_cuts });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── REST API: projects ───────────────────────────────────────────────────────
+
+app.get('/api/projects', async (_req: Request, res: Response) => {
+  try {
+    res.json(await db.listProjects());
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get('/api/projects/:cwd_encoded/sessions', async (
+  req: Request<{ cwd_encoded: string }>,
+  res: Response,
+) => {
+  try {
+    const cwd = Buffer.from(req.params.cwd_encoded, 'base64url').toString('utf8');
+    res.json(await db.getSessionsByProject(cwd));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── REST API: sessions ───────────────────────────────────────────────────────
+
+app.get('/api/sessions/:session_id/graph', async (
+  req: Request<{ session_id: string }>,
+  res: Response,
+) => {
+  try {
+    const { session_id } = req.params;
+    const rawNodes = await db.getNodesBySession(session_id);
+    const edges = await db.getEdgesBySession(session_id);
+    const chunks = await db.getChunksBySession(session_id);
+    res.json({ session_id, nodes: rawNodes, edges, chunks });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get('/api/sessions/:session_id/tool_calls', async (
+  req: Request<{ session_id: string }>,
+  res: Response,
+) => {
+  try {
+    res.json(await db.getToolCallsBySession(req.params.session_id));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── REST API: search ─────────────────────────────────────────────────────────
+
+app.get('/api/search', async (req: Request, res: Response) => {
+  const q = req.query.q as string | undefined;
+  const project = req.query.project as string | undefined;
+  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 10;
+
+  if (!q) {
+    return res.status(400).json({ error: 'q is required' });
   }
 
-  const nodes = rawNodes.map(n => ({
-    id: n.id,
-    session_id: n.session_id,
-    sequence: n.sequence,
-    type: n.type,
-    tool_name: n.tool_name,
-    content_preview: n.content.slice(0, 200),
-    chunk_count: db.getChunksByNode(n.id).length,
-    timestamp: n.timestamp,
-  }));
+  try {
+    const embedding = await embed(q);
+    if (!embedding) {
+      return res.status(503).json({ error: 'Embedding model not available' });
+    }
+    const results = await db.semanticSearch(embedding, { cwd: project, limit });
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
 
-  const edges = db.getEdgesBySession(session_id).map(e => ({
-    source_chunk_id: e.source_chunk_id,
-    target_node_id: e.target_node_id,
-    weight: e.weight,
-    type: e.type,
-  }));
+// ─── REST API: stats ──────────────────────────────────────────────────────────
 
-  // Chunk-to-node mapping for the viewer
-  const chunks = db.getChunksBySession(session_id);
+app.get('/api/stats', async (_req: Request, res: Response) => {
+  try {
+    res.json(await db.getGlobalStats());
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
 
-  // Compression cut sequences
-  const compression_cuts = rawNodes
-    .filter(n => n.type === 'compression_cut')
-    .map(n => n.sequence);
+// ─── REST API: filtered tool calls ───────────────────────────────────────────
 
-  res.json({ session_id, nodes, edges, chunks, compression_cuts });
+app.get('/api/tool_calls', async (req: Request, res: Response) => {
+  try {
+    const filter: db.ToolCallFilter = {
+      cwd:       req.query.project as string | undefined,
+      tool_name: req.query.tool    as string | undefined,
+      since:     req.query.since   as string | undefined,
+      limit:     req.query.limit ? parseInt(req.query.limit as string, 10) : 50,
+    };
+    res.json(await db.getFilteredToolCalls(filter));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── SSE: live stream of new tool calls (all projects) ───────────────────────
+
+app.get('/sse/live', (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const listener = (data: unknown) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+  events.on('tool_call:new', listener);
+
+  req.on('close', () => {
+    events.off('tool_call:new', listener);
+  });
 });
 
 // ─── Fallback: serve viewer SPA ───────────────────────────────────────────────
@@ -210,13 +355,22 @@ app.get('*', (_req: Request, res: Response) => {
 
 // ─── Boot ────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
-  console.log(`[nexus-provenance] Service running at http://localhost:${PORT}`);
-  console.log(`[nexus-provenance] Viewer:  http://localhost:${PORT}`);
-  console.log(`[nexus-provenance] Health:  http://localhost:${PORT}/health`);
-});
+async function start(): Promise<void> {
+  await db.runMigrations();
+  app.listen(PORT, () => {
+    console.log(`[nexus-provenance] Service running at http://localhost:${PORT}`);
+    console.log(`[nexus-provenance] Viewer:  http://localhost:${PORT}`);
+    console.log(`[nexus-provenance] Health:  http://localhost:${PORT}/health`);
+  });
+  initEmbeddings().catch(() => {});
+}
 
-// Warm up the embedding model in the background
-initEmbeddings().catch(() => {});
+if (require.main === module) {
+  start().catch((err) => {
+    console.error('[nexus-provenance] Failed to start:', err);
+    process.exit(1);
+  });
+}
 
 export default app;
+export { start };
