@@ -1,0 +1,26 @@
+{
+  "_comment": "Add these hooks to your ~/.claude/settings.json or project .claude/settings.json",
+  "_note": "Replace NEXUS_DIR with the absolute path to your nexus-provenance clone",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "NEXUS_DIR/hooks/user_prompt_submit.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "NEXUS_DIR/hooks/post_tool_use.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
