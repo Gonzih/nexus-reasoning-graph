@@ -1,6 +1,4 @@
-'use strict';
-
-const { cosineSimilarity, computeTopInfluences, parseEmbedding } = require('../src/influence');
+import { cosineSimilarity, computeTopInfluences, parseEmbedding, ChunkInput } from '../src/influence';
 
 describe('cosineSimilarity', () => {
   test('identical vectors return 1', () => {
@@ -40,7 +38,11 @@ describe('cosineSimilarity', () => {
 });
 
 describe('computeTopInfluences', () => {
-  const makeChunk = (id, nodeId, embedding) => ({ id, node_id: nodeId, embedding });
+  const makeChunk = (id: string, nodeId: string, embedding: number[] | null): ChunkInput => ({
+    id,
+    node_id: nodeId,
+    embedding,
+  });
 
   test('returns empty array when no synthesis chunks', () => {
     const priors = [makeChunk('p1', 'n1', [1, 0, 0])];
@@ -55,9 +57,9 @@ describe('computeTopInfluences', () => {
   test('returns top-k results sorted by weight desc', () => {
     const syn = [makeChunk('s1', 'n_syn', [1, 0, 0])];
     const priors = [
-      makeChunk('p1', 'n1', [1, 0, 0]),   // sim = 1.0
-      makeChunk('p2', 'n2', [0, 1, 0]),   // sim = 0.0
-      makeChunk('p3', 'n3', [0.9, 0.1, 0]), // sim ~ 0.99
+      makeChunk('p1', 'n1', [1, 0, 0]),       // sim = 1.0
+      makeChunk('p2', 'n2', [0, 1, 0]),       // sim = 0.0
+      makeChunk('p3', 'n3', [0.9, 0.1, 0]),   // sim ~ 0.99
     ];
     const result = computeTopInfluences(syn, priors, 2);
     expect(result.length).toBe(2);

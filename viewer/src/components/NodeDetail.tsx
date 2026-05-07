@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 
-const TYPE_LABEL = {
+const TYPE_LABEL: Record<string, string> = {
   intent:          'Intent',
   web_search:      'Web Search',
   web_fetch:       'Web Fetch',
@@ -11,7 +11,7 @@ const TYPE_LABEL = {
   compression_cut: 'Compression Cut',
 };
 
-const TYPE_COLOR = {
+const TYPE_COLOR: Record<string, string> = {
   intent:          '#FFD700',
   web_search:      '#4A90D9',
   web_fetch:       '#20B2AA',
@@ -22,22 +22,28 @@ const TYPE_COLOR = {
   compression_cut: '#FF4444',
 };
 
-export default function NodeDetail({ node, graphData, onClose }) {
+interface NodeDetailProps {
+  node: any;
+  graphData: any;
+  onClose: () => void;
+}
+
+export default function NodeDetail({ node, graphData, onClose }: NodeDetailProps) {
   // Compute top influences targeting this node
   const influences = useMemo(() => {
     if (!graphData || !node) return [];
     const { edges, chunks, nodes } = graphData;
     if (!edges || !chunks || !nodes) return [];
 
-    const c2n = {};
-    chunks.forEach(c => { c2n[c.id] = c.node_id; });
+    const c2n: Record<string, string> = {};
+    chunks.forEach((c: any) => { c2n[c.id] = c.node_id; });
 
-    const nodeById = {};
-    nodes.forEach(n => { nodeById[n.id] = n; });
+    const nodeById: Record<string, any> = {};
+    nodes.forEach((n: any) => { nodeById[n.id] = n; });
 
     return edges
-      .filter(e => e.target_node_id === node.id)
-      .map(e => {
+      .filter((e: any) => e.target_node_id === node.id)
+      .map((e: any) => {
         const srcNodeId = c2n[e.source_chunk_id];
         const srcNode = nodeById[srcNodeId];
         return {
@@ -46,8 +52,8 @@ export default function NodeDetail({ node, graphData, onClose }) {
           weight: e.weight,
         };
       })
-      .filter(i => i.source_node)
-      .sort((a, b) => b.weight - a.weight)
+      .filter((i: any) => i.source_node)
+      .sort((a: any, b: any) => b.weight - a.weight)
       .slice(0, 10);
   }, [node, graphData]);
 
@@ -98,7 +104,7 @@ export default function NodeDetail({ node, graphData, onClose }) {
           <div className="detail-field">
             <label>Top Influences ({influences.length})</label>
             <div className="influence-list" style={{ marginTop: 4 }}>
-              {influences.map((inf, i) => (
+              {influences.map((inf: any, i: number) => (
                 <div className="influence-item" key={i}>
                   <span style={{ minWidth: 90, color: TYPE_COLOR[inf.source_node.type] || '#8b949e', fontSize: 10 }}>
                     #{inf.source_node.sequence} {TYPE_LABEL[inf.source_node.type] || inf.source_node.type}

@@ -1,6 +1,4 @@
-'use strict';
-
-const { chunkText, approxTokenCount, CHUNK_TOKENS, STRIDE_TOKENS } = require('../src/chunker');
+import { chunkText, approxTokenCount, CHUNK_TOKENS, STRIDE_TOKENS } from '../src/chunker';
 
 describe('chunkText', () => {
   test('returns single chunk for short text', () => {

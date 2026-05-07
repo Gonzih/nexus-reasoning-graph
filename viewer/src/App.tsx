@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import Graph from './components/Graph.jsx';
-import NodeDetail from './components/NodeDetail.jsx';
+import Graph from './components/Graph';
+import NodeDetail from './components/NodeDetail';
 
 const POLL_INTERVAL = 2000;
 
@@ -22,7 +22,7 @@ export default function App() {
         setSelectedSession(data[0].id);
       }
     } catch (err) {
-      setError(`Cannot reach service: ${err.message}`);
+      setError(`Cannot reach service: ${(err as Error).message}`);
     }
   }, [selectedSession]);
 
@@ -36,7 +36,7 @@ export default function App() {
       setGraphData(data);
       setError('');
     } catch (err) {
-      setError(`Graph fetch failed: ${err.message}`);
+      setError(`Graph fetch failed: ${(err as Error).message}`);
     }
   }, [selectedSession]);
 
@@ -65,12 +65,12 @@ export default function App() {
       await fetch(`/compute_influences/${selectedSession}`, { method: 'POST' });
       await loadGraph();
     } catch (err) {
-      setError(err.message);
+      setError((err as Error).message);
     }
   };
 
-  const nodeCount = graphData?.nodes?.length ?? 0;
-  const edgeCount = graphData?.edges?.length ?? 0;
+  const nodeCount = (graphData as any)?.nodes?.length ?? 0;
+  const edgeCount = (graphData as any)?.edges?.length ?? 0;
 
   return (
     <div className="app">
@@ -84,7 +84,7 @@ export default function App() {
           onChange={(e) => { setSelectedSession(e.target.value); setSelectedNode(null); }}
         >
           {sessions.length === 0 && <option value="">— no sessions yet —</option>}
-          {sessions.map(s => (
+          {(sessions as any[]).map(s => (
             <option key={s.id} value={s.id}>
               {s.id.slice(0, 8)}… · {new Date(s.updated_at).toLocaleTimeString()}
             </option>

@@ -1,8 +1,6 @@
-'use strict';
-
-const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
+import Database from 'better-sqlite3';
+import path from 'path';
+import fs from 'fs';
 
 const DB_DIR = path.join(__dirname, '..', 'data');
 const DB_PATH = path.join(DB_DIR, 'nexus.db');
@@ -62,9 +60,82 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_edges_session ON edges(session_id);
 `);
 
+// ─── Row types ───────────────────────────────────────────────────────────────
+
+export interface DbSession {
+  id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbNode {
+  id: string;
+  session_id: string;
+  sequence: number;
+  type: string;
+  tool_name: string | null;
+  content: string;
+  timestamp: string;
+}
+
+export interface DbChunk {
+  id: string;
+  node_id: string;
+  chunk_index: number;
+  content: string;
+  embedding: string | null;
+}
+
+export interface DbChunkWithMeta extends DbChunk {
+  session_id: string;
+  node_type: string;
+  node_sequence: number;
+}
+
+export interface DbChunkRef {
+  id: string;
+  node_id: string;
+  chunk_index: number;
+}
+
+export interface DbEdge {
+  id: string;
+  session_id: string;
+  source_chunk_id: string;
+  target_node_id: string;
+  weight: number;
+  type: string;
+}
+
+// ─── Insert param types ───────────────────────────────────────────────────────
+
+export interface InsertNodeParams {
+  id: string;
+  session_id: string;
+  type: string;
+  tool_name: string | null | undefined;
+  content: string;
+  timestamp: string;
+}
+
+export interface InsertChunkParams {
+  id: string;
+  node_id: string;
+  chunk_index: number;
+  content: string;
+}
+
+export interface InsertEdgeParams {
+  id: string;
+  session_id: string;
+  source_chunk_id: string;
+  target_node_id: string;
+  weight: number;
+}
+
 // ─── Session helpers ─────────────────────────────────────────────────────────
 
-function ensureSession(sessionId) {
+export function ensureSession(sessionId: string): void {
   const now = new Date().toISOString();
   db.prepare(`
     INSERT INTO sessions(id, created_at, updated_at)
@@ -73,108 +144,91 @@ function ensureSession(sessionId) {
   `).run(sessionId, now, now);
 }
 
-function touchSession(sessionId) {
+function touchSession(sessionId: string): void {
   db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?')
     .run(new Date().toISOString(), sessionId);
 }
 
-function listSessions() {
-  return db.prepare('SELECT * FROM sessions ORDER BY updated_at DESC LIMIT 50').all();
+export function listSessions(): DbSession[] {
+  return db.prepare('SELECT * FROM sessions ORDER BY updated_at DESC LIMIT 50').all() as DbSession[];
 }
 
 // ─── Node helpers ────────────────────────────────────────────────────────────
 
-function insertNode({ id, session_id, type, tool_name, content, timestamp }) {
+export function insertNode({ id, session_id, type, tool_name, content, timestamp }: InsertNodeParams): number {
   const seq = nextSequence(session_id);
   db.prepare(`
     INSERT INTO nodes(id, session_id, sequence, type, tool_name, content, timestamp)
     VALUES(?, ?, ?, ?, ?, ?, ?)
-  `).run(id, session_id, seq, type, tool_name || null, content, timestamp);
+  `).run(id, session_id, seq, type, tool_name ?? null, content, timestamp);
   touchSession(session_id);
   return seq;
 }
 
-function nextSequence(sessionId) {
-  const row = db.prepare('SELECT COUNT(*) AS cnt FROM nodes WHERE session_id = ?').get(sessionId);
+function nextSequence(sessionId: string): number {
+  const row = db.prepare('SELECT COUNT(*) AS cnt FROM nodes WHERE session_id = ?').get(sessionId) as { cnt: number } | undefined;
   return (row ? row.cnt : 0) + 1;
 }
 
-function getNode(id) {
-  return db.prepare('SELECT * FROM nodes WHERE id = ?').get(id);
+export function getNode(id: string): DbNode | undefined {
+  return db.prepare('SELECT * FROM nodes WHERE id = ?').get(id) as DbNode | undefined;
 }
 
-function getNodesBySession(sessionId) {
-  return db.prepare('SELECT * FROM nodes WHERE session_id = ? ORDER BY sequence ASC').all(sessionId);
+export function getNodesBySession(sessionId: string): DbNode[] {
+  return db.prepare('SELECT * FROM nodes WHERE session_id = ? ORDER BY sequence ASC').all(sessionId) as DbNode[];
 }
 
 // ─── Chunk helpers ───────────────────────────────────────────────────────────
 
-function insertChunk({ id, node_id, chunk_index, content }) {
+export function insertChunk({ id, node_id, chunk_index, content }: InsertChunkParams): void {
   db.prepare(`
     INSERT INTO chunks(id, node_id, chunk_index, content)
     VALUES(?, ?, ?, ?)
   `).run(id, node_id, chunk_index, content);
 }
 
-function updateChunkEmbedding(id, embedding) {
+export function updateChunkEmbedding(id: string, embedding: number[]): void {
   db.prepare('UPDATE chunks SET embedding = ? WHERE id = ?')
     .run(JSON.stringify(embedding), id);
 }
 
-function getChunksByNode(nodeId) {
-  return db.prepare('SELECT * FROM chunks WHERE node_id = ? ORDER BY chunk_index ASC').all(nodeId);
+export function getChunksByNode(nodeId: string): DbChunk[] {
+  return db.prepare('SELECT * FROM chunks WHERE node_id = ? ORDER BY chunk_index ASC').all(nodeId) as DbChunk[];
 }
 
-function getChunksWithEmbeddingsBySession(sessionId) {
+export function getChunksWithEmbeddingsBySession(sessionId: string): DbChunkWithMeta[] {
   return db.prepare(`
     SELECT c.*, n.session_id, n.type AS node_type, n.sequence AS node_sequence
     FROM chunks c
     JOIN nodes n ON c.node_id = n.id
     WHERE n.session_id = ? AND c.embedding IS NOT NULL
     ORDER BY n.sequence ASC, c.chunk_index ASC
-  `).all(sessionId);
+  `).all(sessionId) as DbChunkWithMeta[];
 }
 
-function getChunksBySession(sessionId) {
+export function getChunksBySession(sessionId: string): DbChunkRef[] {
   return db.prepare(`
     SELECT c.id, c.node_id, c.chunk_index
     FROM chunks c
     JOIN nodes n ON c.node_id = n.id
     WHERE n.session_id = ?
     ORDER BY n.sequence ASC, c.chunk_index ASC
-  `).all(sessionId);
+  `).all(sessionId) as DbChunkRef[];
 }
 
 // ─── Edge helpers ────────────────────────────────────────────────────────────
 
-function insertEdge({ id, session_id, source_chunk_id, target_node_id, weight }) {
+export function insertEdge({ id, session_id, source_chunk_id, target_node_id, weight }: InsertEdgeParams): void {
   db.prepare(`
     INSERT OR REPLACE INTO edges(id, session_id, source_chunk_id, target_node_id, weight, type)
     VALUES(?, ?, ?, ?, ?, 'influence')
   `).run(id, session_id, source_chunk_id, target_node_id, weight);
 }
 
-function getEdgesBySession(sessionId) {
-  return db.prepare('SELECT * FROM edges WHERE session_id = ? ORDER BY weight DESC').all(sessionId);
+export function getEdgesBySession(sessionId: string): DbEdge[] {
+  return db.prepare('SELECT * FROM edges WHERE session_id = ? ORDER BY weight DESC').all(sessionId) as DbEdge[];
 }
 
-function deleteEdgesByTarget(targetNodeId) {
+export function deleteEdgesByTarget(targetNodeId: string): void {
   db.prepare('DELETE FROM edges WHERE target_node_id = ?').run(targetNodeId);
 }
-
-module.exports = {
-  db,
-  ensureSession,
-  listSessions,
-  insertNode,
-  getNode,
-  getNodesBySession,
-  insertChunk,
-  updateChunkEmbedding,
-  getChunksByNode,
-  getChunksWithEmbeddingsBySession,
-  getChunksBySession,
-  insertEdge,
-  getEdgesBySession,
-  deleteEdgesByTarget,
-};

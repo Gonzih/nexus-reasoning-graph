@@ -1,10 +1,20 @@
-'use strict';
+export interface ChunkInput {
+  id: string;
+  node_id: string;
+  embedding: number[] | null;
+}
+
+export interface InfluenceEdge {
+  source_chunk_id: string;
+  target_chunk_id: string;
+  weight: number;
+}
 
 /**
  * Compute cosine similarity between two numeric arrays.
  * Returns 0 if either vector is zero-magnitude.
  */
-function cosineSimilarity(a, b) {
+export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) return 0;
   let dot = 0, normA = 0, normB = 0;
   for (let i = 0; i < a.length; i++) {
@@ -21,14 +31,13 @@ function cosineSimilarity(a, b) {
  * Given a synthesis node's chunks (with embeddings) and an array of
  * candidate prior chunks (with embeddings), return the top-k influence
  * edges per synthesis chunk.
- *
- * @param {Array<{id: string, embedding: number[]}>} synthesisChunks
- * @param {Array<{id: string, node_id: string, embedding: number[]}>} priorChunks
- * @param {number} topK
- * @returns {Array<{source_chunk_id, target_chunk_id, weight}>}
  */
-function computeTopInfluences(synthesisChunks, priorChunks, topK = 5) {
-  const results = [];
+export function computeTopInfluences(
+  synthesisChunks: ChunkInput[],
+  priorChunks: ChunkInput[],
+  topK = 5,
+): InfluenceEdge[] {
+  const results: InfluenceEdge[] = [];
 
   for (const synChunk of synthesisChunks) {
     if (!synChunk.embedding) continue;
@@ -38,7 +47,7 @@ function computeTopInfluences(synthesisChunks, priorChunks, topK = 5) {
       .map(c => ({
         source_chunk_id: c.id,
         source_node_id: c.node_id,
-        weight: cosineSimilarity(synChunk.embedding, c.embedding),
+        weight: cosineSimilarity(synChunk.embedding as number[], c.embedding as number[]),
       }))
       .filter(r => r.weight > 0)
       .sort((a, b) => b.weight - a.weight)
@@ -57,14 +66,12 @@ function computeTopInfluences(synthesisChunks, priorChunks, topK = 5) {
 /**
  * Parse stored embedding from JSON string or return array as-is.
  */
-function parseEmbedding(raw) {
+export function parseEmbedding(raw: string | number[] | null | undefined): number[] | null {
   if (!raw) return null;
   if (Array.isArray(raw)) return raw;
   try {
-    return JSON.parse(raw);
+    return JSON.parse(raw) as number[];
   } catch {
     return null;
   }
 }
-
-module.exports = { cosineSimilarity, computeTopInfluences, parseEmbedding };

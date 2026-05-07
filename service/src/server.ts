@@ -1,15 +1,13 @@
-'use strict';
+import express, { Request, Response } from 'express';
+import cors from 'cors';
+import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import { EventEmitter } from 'events';
 
-const express = require('express');
-const cors = require('cors');
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
-const { EventEmitter } = require('events');
-
-const db = require('./db');
-const { chunkText } = require('./chunker');
-const { embed, init: initEmbeddings } = require('./embeddings');
-const { computeTopInfluences, parseEmbedding } = require('./influence');
+import * as db from './db';
+import { chunkText } from './chunker';
+import { embed, init as initEmbeddings } from './embeddings';
+import { computeTopInfluences, parseEmbedding } from './influence';
 
 const PORT = process.env.PORT || 7702;
 const app = express();
@@ -25,26 +23,26 @@ app.use(express.static(PUBLIC_DIR));
 
 // ─── Health ──────────────────────────────────────────────────────────────────
 
-app.get('/health', (_req, res) => {
+app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', ts: new Date().toISOString() });
 });
 
 // ─── Sessions ────────────────────────────────────────────────────────────────
 
-app.get('/sessions', (_req, res) => {
+app.get('/sessions', (_req: Request, res: Response) => {
   res.json(db.listSessions());
 });
 
 // ─── SSE live updates ─────────────────────────────────────────────────────────
 
-app.get('/events/:session_id', (req, res) => {
+app.get('/events/:session_id', (req: Request<{ session_id: string }>, res: Response) => {
   const { session_id } = req.params;
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  const listener = (data) => {
+  const listener = (data: unknown) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
   events.on(`update:${session_id}`, listener);
@@ -56,7 +54,15 @@ app.get('/events/:session_id', (req, res) => {
 
 // ─── Ingest node ─────────────────────────────────────────────────────────────
 
-app.post('/node', (req, res) => {
+interface NodeRequestBody {
+  session_id: string;
+  type: string;
+  tool_name?: string;
+  content: unknown;
+  timestamp?: string;
+}
+
+app.post('/node', (req: Request<Record<string, never>, unknown, NodeRequestBody>, res: Response) => {
   const { session_id, type, tool_name, content, timestamp } = req.body;
 
   if (!session_id || !type || content === undefined) {
@@ -74,16 +80,16 @@ app.post('/node', (req, res) => {
 
   // Background: chunk + embed + maybe compute influences
   setImmediate(() => {
-    processNodeAsync(nodeId, session_id, type, String(content)).catch((err) => {
+    processNodeAsync(nodeId, session_id, type, String(content)).catch((err: Error) => {
       console.error('[processNode] error:', err.message);
     });
   });
 });
 
-async function processNodeAsync(nodeId, sessionId, type, content) {
+async function processNodeAsync(nodeId: string, sessionId: string, type: string, content: string): Promise<void> {
   // 1. Chunk
   const chunks = chunkText(content);
-  const chunkIds = [];
+  const chunkIds: string[] = [];
 
   for (const { index, content: chunkContent } of chunks) {
     const chunkId = uuidv4();
@@ -108,7 +114,7 @@ async function processNodeAsync(nodeId, sessionId, type, content) {
   events.emit(`update:${sessionId}`, { event: 'node_processed', node_id: nodeId });
 }
 
-async function computeAndStoreInfluences(synthesisNodeId, sessionId) {
+async function computeAndStoreInfluences(synthesisNodeId: string, sessionId: string): Promise<void> {
   // Get all chunks in session with embeddings
   const allChunks = db.getChunksWithEmbeddingsBySession(sessionId).map(c => ({
     ...c,
@@ -140,7 +146,7 @@ async function computeAndStoreInfluences(synthesisNodeId, sessionId) {
 
 // ─── Compute influences on demand ────────────────────────────────────────────
 
-app.post('/compute_influences/:session_id', async (req, res) => {
+app.post('/compute_influences/:session_id', async (req: Request<{ session_id: string }>, res: Response) => {
   const { session_id } = req.params;
   const nodes = db.getNodesBySession(session_id);
   const synthesisNodes = nodes.filter(n => n.type === 'synthesis');
@@ -156,7 +162,7 @@ app.post('/compute_influences/:session_id', async (req, res) => {
 
 // ─── Graph data ───────────────────────────────────────────────────────────────
 
-app.get('/graph/:session_id', (req, res) => {
+app.get('/graph/:session_id', (req: Request<{ session_id: string }>, res: Response) => {
   const { session_id } = req.params;
   const rawNodes = db.getNodesBySession(session_id);
 
@@ -195,7 +201,7 @@ app.get('/graph/:session_id', (req, res) => {
 
 // ─── Fallback: serve viewer SPA ───────────────────────────────────────────────
 
-app.get('*', (_req, res) => {
+app.get('*', (_req: Request, res: Response) => {
   const indexPath = path.join(PUBLIC_DIR, 'index.html');
   res.sendFile(indexPath, (err) => {
     if (err) res.status(404).send('Viewer not built. Run: cd viewer && npm run build');
@@ -213,4 +219,4 @@ app.listen(PORT, () => {
 // Warm up the embedding model in the background
 initEmbeddings().catch(() => {});
 
-module.exports = app; // for testing
+export default app;

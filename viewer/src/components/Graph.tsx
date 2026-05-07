@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import * as d3 from 'd3';
 
 // ─── Node visual config ────────────────────────────────────────────────────────
-const NODE_COLOR = {
+const NODE_COLOR: Record<string, string> = {
   intent:          '#FFD700',
   web_search:      '#4A90D9',
   web_fetch:       '#20B2AA',
@@ -15,7 +15,7 @@ const NODE_COLOR = {
 
 const DEFAULT_COLOR = '#8b949e';
 
-const NODE_RADIUS = {
+const NODE_RADIUS: Record<string, number> = {
   intent:     22,
   synthesis:  18,
   agent:      16,
@@ -23,7 +23,7 @@ const NODE_RADIUS = {
 const DEFAULT_RADIUS = 14;
 
 // y-band by type (0 = top)
-const Y_BAND = {
+const Y_BAND: Record<string, number> = {
   intent:     0,
   web_search: 1,
   web_fetch:  1,
@@ -43,14 +43,20 @@ const LEGEND_ITEMS = [
   { type: 'synthesis',  label: 'Synthesis' },
 ];
 
-export default function Graph({ graphData, selectedNode, onNodeClick }) {
-  const svgRef = useRef(null);
-  const simRef = useRef(null);
+interface GraphProps {
+  graphData: any;
+  selectedNode: any;
+  onNodeClick: (node: any) => void;
+}
+
+export default function Graph({ graphData, selectedNode, onNodeClick }: GraphProps) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const simRef = useRef<any>(null);
 
   // Build chunk-id → node-id lookup from graphData.chunks
-  const chunkToNode = useCallback((chunks) => {
-    const map = {};
-    (chunks || []).forEach(c => { map[c.id] = c.node_id; });
+  const chunkToNode = useCallback((chunks: any[]) => {
+    const map: Record<string, string> = {};
+    (chunks || []).forEach((c: any) => { map[c.id] = c.node_id; });
     return map;
   }, []);
 
@@ -59,7 +65,7 @@ export default function Graph({ graphData, selectedNode, onNodeClick }) {
     const { nodes, edges, compression_cuts, chunks } = graphData;
     if (!nodes || !nodes.length) return;
 
-    const container = svgRef.current.parentElement;
+    const container = svgRef.current.parentElement!;
     const W = container.clientWidth  || 900;
     const H = container.clientHeight || 600;
 
@@ -91,17 +97,17 @@ export default function Graph({ graphData, selectedNode, onNodeClick }) {
     // ── Zoom layer ────────────────────────────────────────────────────────────
     const g = svg.append('g').attr('class', 'zoom-layer');
     svg.call(
-      d3.zoom()
+      d3.zoom<SVGSVGElement, unknown>()
         .scaleExtent([0.1, 6])
         .on('zoom', ev => g.attr('transform', ev.transform))
     );
 
     // ── Compute band heights ──────────────────────────────────────────────────
     const bandH = H / 3.5;
-    const bandY = band => bandH * 0.8 + band * bandH;
+    const bandY = (band: number) => bandH * 0.8 + band * bandH;
 
     // ── Prepare sim nodes ─────────────────────────────────────────────────────
-    const simNodes = nodes.map(n => ({
+    const simNodes = nodes.map((n: any) => ({
       ...n,
       x: W / 2 + (Math.random() - 0.5) * 200,
       y: bandY(Y_BAND[n.type] ?? 1),
@@ -109,11 +115,11 @@ export default function Graph({ graphData, selectedNode, onNodeClick }) {
       color: NODE_COLOR[n.type] ?? DEFAULT_COLOR,
     }));
 
-    const nodeById = Object.fromEntries(simNodes.map(n => [n.id, n]));
+    const nodeById: Record<string, any> = Object.fromEntries(simNodes.map((n: any) => [n.id, n]));
 
     // ── Aggregate influence edges: chunk→node becomes node→node ──────────────
     const c2n = chunkToNode(chunks);
-    const edgeAgg = {}; // "src|tgt" → max weight
+    const edgeAgg: Record<string, number> = {}; // "src|tgt" → max weight
 
     for (const e of (edges || [])) {
       const srcNodeId = c2n[e.source_chunk_id];
@@ -133,11 +139,11 @@ export default function Graph({ graphData, selectedNode, onNodeClick }) {
     });
 
     // ── Structural links: intent → tool nodes (lightweight) ──────────────────
-    const intentNode = simNodes.find(n => n.type === 'intent');
+    const intentNode = simNodes.find((n: any) => n.type === 'intent');
     const structLinks = intentNode
       ? simNodes
-          .filter(n => n.type !== 'intent' && n.type !== 'synthesis')
-          .map(n => ({ source: intentNode.id, target: n.id, weight: 0, structural: true }))
+          .filter((n: any) => n.type !== 'intent' && n.type !== 'synthesis')
+          .map((n: any) => ({ source: intentNode.id, target: n.id, weight: 0, structural: true }))
       : [];
 
     const allLinks = [...structLinks, ...simLinks];
@@ -145,15 +151,15 @@ export default function Graph({ graphData, selectedNode, onNodeClick }) {
     // ── D3 force simulation ───────────────────────────────────────────────────
     const sim = d3.forceSimulation(simNodes)
       .force('link', d3.forceLink(allLinks)
-        .id(d => d.id)
-        .strength(d => d.structural ? 0.15 : 0.3 * d.weight)
-        .distance(d => d.structural ? 120 : 80 + (1 - d.weight) * 100)
+        .id((d: any) => d.id)
+        .strength((d: any) => d.structural ? 0.15 : 0.3 * d.weight)
+        .distance((d: any) => d.structural ? 120 : 80 + (1 - d.weight) * 100)
       )
       .force('charge', d3.forceManyBody().strength(-220))
       .force('center', d3.forceCenter(W / 2, H / 2).strength(0.05))
-      .force('y', d3.forceY(d => bandY(Y_BAND[d.type] ?? 1)).strength(0.5))
+      .force('y', d3.forceY((d: any) => bandY(Y_BAND[d.type] ?? 1)).strength(0.5))
       .force('x', d3.forceX(W / 2).strength(0.04))
-      .force('collide', d3.forceCollide(d => d.r + 8).strength(0.7))
+      .force('collide', d3.forceCollide((d: any) => d.r + 8).strength(0.7))
       .alphaDecay(0.028);
 
     simRef.current = sim;
@@ -161,8 +167,8 @@ export default function Graph({ graphData, selectedNode, onNodeClick }) {
     // ── Compression-cut lines (horizontal dashes) ────────────────────────────
     const cutGroup = g.append('g').attr('class', 'cuts');
     if (compression_cuts && compression_cuts.length) {
-      compression_cuts.forEach(seq => {
-        const refNode = simNodes.find(n => n.sequence === seq) || simNodes[seq - 1];
+      compression_cuts.forEach((seq: number) => {
+        const refNode = simNodes.find((n: any) => n.sequence === seq) || simNodes[seq - 1];
         if (!refNode) return;
         cutGroup.append('line')
           .attr('class', 'cut-line')
@@ -181,11 +187,11 @@ export default function Graph({ graphData, selectedNode, onNodeClick }) {
       .selectAll('line')
       .data(allLinks)
       .join('line')
-      .attr('stroke', d => d.structural ? '#2d333b' : '#4a5568')
-      .attr('stroke-width', d => d.structural ? 0.8 : Math.max(0.5, d.weight * 4))
-      .attr('stroke-dasharray', d => d.structural ? '4,3' : null)
-      .attr('marker-end', d => d.structural ? null : 'url(#arrow)')
-      .attr('opacity', d => d.structural ? 0.5 : 0.75);
+      .attr('stroke', (d: any) => d.structural ? '#2d333b' : '#4a5568')
+      .attr('stroke-width', (d: any) => d.structural ? 0.8 : Math.max(0.5, d.weight * 4))
+      .attr('stroke-dasharray', (d: any) => d.structural ? '4,3' : null)
+      .attr('marker-end', (d: any) => d.structural ? null : 'url(#arrow)')
+      .attr('opacity', (d: any) => d.structural ? 0.5 : 0.75);
 
     // ── Node circles ──────────────────────────────────────────────────────────
     const nodeGroup = g.append('g').attr('class', 'nodes');
@@ -196,7 +202,7 @@ export default function Graph({ graphData, selectedNode, onNodeClick }) {
       .attr('class', 'node')
       .style('cursor', 'pointer')
       .call(
-        d3.drag()
+        d3.drag<any, any>()
           .on('start', (ev, d) => {
             if (!ev.active) sim.alphaTarget(0.3).restart();
             d.fx = d.x;
@@ -209,52 +215,52 @@ export default function Graph({ graphData, selectedNode, onNodeClick }) {
             d.fy = null;
           })
       )
-      .on('click', (_ev, d) => onNodeClick(d));
+      .on('click', (_ev: any, d: any) => onNodeClick(d));
 
     // Circle
     nodeEl.append('circle')
-      .attr('r', d => d.r)
-      .attr('fill', d => d.color)
+      .attr('r', (d: any) => d.r)
+      .attr('fill', (d: any) => d.color)
       .attr('fill-opacity', 0.15)
-      .attr('stroke', d => d.color)
-      .attr('stroke-width', d => selectedNode?.id === d.id ? 3 : 1.5);
+      .attr('stroke', (d: any) => d.color)
+      .attr('stroke-width', (d: any) => selectedNode?.id === d.id ? 3 : 1.5);
 
     // Label
     nodeEl.append('text')
-      .text(d => {
+      .text((d: any) => {
         const label = d.tool_name || d.type;
         return label.length > 14 ? label.slice(0, 13) + '…' : label;
       })
       .attr('text-anchor', 'middle')
-      .attr('dy', d => d.r + 13)
+      .attr('dy', (d: any) => d.r + 13)
       .attr('font-size', 10)
-      .attr('fill', d => d.color)
+      .attr('fill', (d: any) => d.color)
       .attr('pointer-events', 'none');
 
     // Sequence badge
     nodeEl.append('text')
-      .text(d => d.sequence)
+      .text((d: any) => d.sequence)
       .attr('text-anchor', 'middle')
       .attr('dy', '0.35em')
       .attr('font-size', 9)
-      .attr('fill', d => d.color)
+      .attr('fill', (d: any) => d.color)
       .attr('fill-opacity', 0.8)
       .attr('pointer-events', 'none');
 
     // ── Simulation tick ───────────────────────────────────────────────────────
     sim.on('tick', () => {
       linkEl
-        .attr('x1', d => d.source.x)
-        .attr('y1', d => d.source.y)
-        .attr('x2', d => d.target.x)
-        .attr('y2', d => d.target.y);
+        .attr('x1', (d: any) => d.source.x)
+        .attr('y1', (d: any) => d.source.y)
+        .attr('x2', (d: any) => d.target.x)
+        .attr('y2', (d: any) => d.target.y);
 
-      nodeEl.attr('transform', d => `translate(${d.x},${d.y})`);
+      nodeEl.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
 
       // Update cut lines to follow node y positions (rough)
       cutGroup.selectAll('.cut-line').each(function (_, i) {
         const seq = compression_cuts[i];
-        const ref = simNodes.find(n => n.sequence === seq);
+        const ref = simNodes.find((n: any) => n.sequence === seq);
         if (ref) {
           d3.select(this).attr('y1', ref.y).attr('y2', ref.y);
         }

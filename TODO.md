@@ -1,38 +1,26 @@
-# TODO
+# TODO — TypeScript Migration
 
-## Phase 1 — Scaffolding
-- [ ] Root package.json with convenience scripts
-- [ ] service/package.json with all deps
-- [ ] viewer/package.json with Vite + React + D3
+## Service
+- [ ] Install TypeScript devDeps (typescript, ts-jest, tsx, @types/*)
+- [ ] Create service/tsconfig.json
+- [ ] Convert service/src/chunker.js → chunker.ts
+- [ ] Convert service/src/influence.js → influence.ts
+- [ ] Convert service/src/db.js → db.ts
+- [ ] Convert service/src/embeddings.js → embeddings.ts
+- [ ] Convert service/src/server.js → server.ts
+- [ ] Convert service/tests/chunker.test.js → chunker.test.ts
+- [ ] Convert service/tests/influence.test.js → influence.test.ts
+- [ ] Delete old .js source files
+- [ ] Update service/package.json (scripts + jest config)
+- [ ] Run tests — must pass
+- [ ] Run npm run build — must succeed
 
-## Phase 2 — Service Core
-- [ ] service/src/db.js — SQLite schema + CRUD helpers
-- [ ] service/src/chunker.js — sliding-window chunker
-- [ ] service/src/influence.js — cosine similarity + top-k
-- [ ] service/src/embeddings.js — local/@xenova/openai/stub fallback
-- [ ] service/src/server.js — Express routes + SSE
+## Viewer
+- [ ] Update viewer/package.json (typescript + @types/react + @types/react-dom)
+- [ ] Create viewer/tsconfig.json
+- [ ] Rename .jsx → .tsx (4 files, fix imports)
+- [ ] Update viewer/index.html
 
-## Phase 3 — Viewer
-- [ ] viewer/vite.config.js
-- [ ] viewer/index.html
-- [ ] viewer/src/main.jsx
-- [ ] viewer/src/App.jsx + App.css
-- [ ] viewer/src/components/Graph.jsx
-- [ ] viewer/src/components/NodeDetail.jsx
-
-## Phase 4 — Hooks + Config
-- [ ] hooks/user_prompt_submit.sh
-- [ ] hooks/post_tool_use.sh
-- [ ] settings.snippet.json
-
-## Phase 5 — Tests + README
-- [ ] service/tests/chunker.test.js
-- [ ] service/tests/influence.test.js
-- [ ] README.md
-
-## Phase 6 — Build + Verify
-- [ ] npm install (service + viewer)
-- [ ] npm run build (viewer)
-- [ ] npm test (service)
+## Deploy
 - [ ] git diff --staged review
 - [ ] Commit + push + PR + merge

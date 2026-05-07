@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * Embedding provider with three tiers:
  *  1. Local @xenova/transformers (all-MiniLM-L6-v2, 384-dim) — preferred
@@ -7,45 +5,56 @@
  *  3. TF-IDF bag-of-words stub — always available, lower quality
  */
 
-let _provider = null; // 'xenova' | 'openai' | 'tfidf'
-let _pipe = null;
-let _openaiClient = null;
-let _initPromise = null;
+import type OpenAI from 'openai';
 
-async function init() {
+type EmbeddingProvider = 'xenova' | 'openai' | 'tfidf' | null;
+
+// Xenova pipeline callable: returns an object with a Float32Array `data` field
+type XenovaPipeline = (
+  text: string,
+  options: { pooling: string; normalize: boolean },
+) => Promise<{ data: Float32Array }>;
+
+let _provider: EmbeddingProvider = null;
+let _pipe: XenovaPipeline | null = null;
+let _openaiClient: OpenAI | null = null;
+let _initPromise: Promise<void> | null = null;
+
+export async function init(): Promise<void> {
   if (_provider) return;
 
   // ── Tier 1: @xenova/transformers ───────────────────────────────────────────
   try {
     const { pipeline, env } = await import('@xenova/transformers');
     // Suppress progress bar spam in server logs
-    env.allowLocalModels = false;
+    (env as { allowLocalModels: boolean }).allowLocalModels = false;
     const pipe = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
       quantized: true,
     });
-    _pipe = pipe;
+    _pipe = pipe as unknown as XenovaPipeline;
     _provider = 'xenova';
     console.log('[embeddings] Using local Xenova/all-MiniLM-L6-v2');
     return;
   } catch (err) {
-    console.warn('[embeddings] Local model unavailable:', err.message);
+    console.warn('[embeddings] Local model unavailable:', (err as Error).message);
   }
 
   // ── Tier 2: OpenAI ─────────────────────────────────────────────────────────
   if (process.env.OPENAI_API_KEY) {
     try {
-      const { default: OpenAI } = await import('openai');
-      _openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const { default: OpenAIClass } = await import('openai');
+      const client = new OpenAIClass({ apiKey: process.env.OPENAI_API_KEY });
       // Quick health-check
-      await _openaiClient.embeddings.create({
+      await client.embeddings.create({
         model: 'text-embedding-3-small',
         input: 'ping',
       });
+      _openaiClient = client;
       _provider = 'openai';
       console.log('[embeddings] Using OpenAI text-embedding-3-small');
       return;
     } catch (err) {
-      console.warn('[embeddings] OpenAI embeddings failed:', err.message);
+      console.warn('[embeddings] OpenAI embeddings failed:', (err as Error).message);
     }
   }
 
@@ -57,19 +66,19 @@ async function init() {
 /**
  * Embed a single text string. Returns a number[] or null on failure.
  */
-async function embed(text) {
+export async function embed(text: string): Promise<number[] | null> {
   if (!_initPromise) {
     _initPromise = init();
   }
   await _initPromise;
 
   try {
-    if (_provider === 'xenova') {
+    if (_provider === 'xenova' && _pipe) {
       const output = await _pipe(text, { pooling: 'mean', normalize: true });
       return Array.from(output.data);
     }
 
-    if (_provider === 'openai') {
+    if (_provider === 'openai' && _openaiClient) {
       const res = await _openaiClient.embeddings.create({
         model: 'text-embedding-3-small',
         input: text.slice(0, 8192), // API limit
@@ -81,7 +90,7 @@ async function embed(text) {
       return tfidfEmbed(text);
     }
   } catch (err) {
-    console.error('[embeddings] embed() failed:', err.message);
+    console.error('[embeddings] embed() failed:', (err as Error).message);
   }
   return null;
 }
@@ -90,9 +99,9 @@ async function embed(text) {
  * Simple TF-IDF-inspired bag-of-words vector (512-dim, hashed).
  * Enables cosine similarity without any ML dependency.
  */
-function tfidfEmbed(text) {
+function tfidfEmbed(text: string): number[] {
   const DIM = 512;
-  const vec = new Array(DIM).fill(0);
+  const vec = new Array<number>(DIM).fill(0);
   const words = text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
 
   for (const word of words) {
@@ -107,7 +116,7 @@ function tfidfEmbed(text) {
   return vec.map(v => v / norm);
 }
 
-function hashWord(s) {
+function hashWord(s: string): number {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -115,5 +124,3 @@ function hashWord(s) {
   }
   return h;
 }
-
-module.exports = { embed, init };
