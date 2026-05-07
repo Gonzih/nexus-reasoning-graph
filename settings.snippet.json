@@ -1,5 +1,5 @@
 {
-  "_comment": "Add these hooks to your ~/.claude/settings.json or project .claude/settings.json",
+  "_comment": "Add these hooks and MCP server to your ~/.claude/settings.json or project .claude/settings.json",
   "_note": "Replace NEXUS_DIR with the absolute path to your nexus-provenance clone",
   "hooks": {
     "UserPromptSubmit": [
@@ -22,5 +22,14 @@
         ]
       }
     ]
+  },
+  "mcpServers": {
+    "nexus-memory": {
+      "command": "node",
+      "args": ["NEXUS_DIR/service/dist/mcp.js"],
+      "env": {
+        "DATABASE_URL": "postgresql://localhost:5432/nexus_memory"
+      }
+    }
   }
 }

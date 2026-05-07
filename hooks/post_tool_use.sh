@@ -9,6 +9,7 @@ INPUT="$(cat)"
 
 SESSION_ID="$(printf '%s' "$INPUT" | jq -r '.session_id // "unknown"')"
 TOOL_NAME="$(printf '%s' "$INPUT" | jq -r '.tool_name // "unknown"')"
+CWD="$(printf '%s' "$INPUT" | jq -r '.cwd // ""')"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Map Claude Code tool names to Nexus node types
@@ -39,12 +40,14 @@ PAYLOAD="$(jq -n \
   --arg tool_name "$TOOL_NAME" \
   --arg content "$CONTENT" \
   --arg timestamp "$TIMESTAMP" \
+  --arg cwd "$CWD" \
   '{
     session_id: $session_id,
     type: $type,
     tool_name: $tool_name,
     content: $content,
-    timestamp: $timestamp
+    timestamp: $timestamp,
+    cwd: (if $cwd == "" then null else $cwd end)
   }')"
 
 # Fire-and-forget

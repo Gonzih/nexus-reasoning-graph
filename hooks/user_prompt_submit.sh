@@ -9,6 +9,7 @@ INPUT="$(cat)"
 
 SESSION_ID="$(printf '%s' "$INPUT" | jq -r '.session_id // "unknown"')"
 PROMPT="$(printf '%s' "$INPUT" | jq -r '.prompt // ""')"
+CWD="$(printf '%s' "$INPUT" | jq -r '.cwd // ""')"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Build payload with jq to avoid injection
@@ -16,12 +17,14 @@ PAYLOAD="$(jq -n \
   --arg session_id "$SESSION_ID" \
   --arg content "$PROMPT" \
   --arg timestamp "$TIMESTAMP" \
+  --arg cwd "$CWD" \
   '{
     session_id: $session_id,
     type: "intent",
     tool_name: null,
     content: $content,
-    timestamp: $timestamp
+    timestamp: $timestamp,
+    cwd: (if $cwd == "" then null else $cwd end)
   }')"
 
 # Fire-and-forget; never block Claude Code
