@@ -1,0 +1,16 @@
+{
+  "name": "nexus-provenance",
+  "version": "1.0.0",
+  "description": "Nexus Reasoning Provenance Graph — root workspace",
+  "private": true,
+  "scripts": {
+    "install:service": "cd service && npm install",
+    "install:viewer": "cd viewer && npm install",
+    "install:all": "npm run install:service && npm run install:viewer",
+    "build:viewer": "cd viewer && npm run build",
+    "start": "cd service && npm start",
+    "dev:service": "cd service && npm run dev",
+    "test": "cd service && npm test",
+    "setup": "npm run install:all && npm run build:viewer"
+  }
+}
